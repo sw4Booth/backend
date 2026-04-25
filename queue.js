@@ -4,6 +4,7 @@ const JobStatus = Object.freeze({
     PENDING: "pending",
     PRINTING: "printing",
     COMPLETED: "completed",
+    FAILED: "failed"
 });
 
 function makeId() {
@@ -54,7 +55,7 @@ export function markFailed(jobId, printerId) {
 
     if (!job || job.printerId !== printerId) return false;
 
-    job.status = JobStatus.PENDING;
+    job.status = JobStatus.FAILED;
     job.printerId = null;
     job.claimedAt = null;
 
