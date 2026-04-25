@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
 
 const r2 = new S3Client({
@@ -13,9 +13,8 @@ const r2 = new S3Client({
 const BUCKET = process.env.R2_BUCKET_NAME;
 const PUBLIC_URL = process.env.R2_PUBLIC_URL;
 
-export async function uploadImage(buffer, originalName, contentType) {
-    const ext = originalName.split(".").pop();
-    const key = `${randomUUID()}.${ext}`;
+export async function uploadImage(buffer, originalName, contentType, prefix = "") {
+    const key = prefix ? `${prefix}/${randomUUID()}.png` : `${randomUUID()}.${originalName.split('.').pop()}`;
 
     await r2.send(new PutObjectCommand({
         Bucket: BUCKET,
@@ -25,4 +24,10 @@ export async function uploadImage(buffer, originalName, contentType) {
     }));
 
     return `${PUBLIC_URL}/${key}`;
+}
+
+export async function deleteImage(imageUrl) {
+    const key = imageUrl.replace(`${PUBLIC_URL}/`, "");
+
+    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }

@@ -10,12 +10,11 @@ function makeId() {
     return `job_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export function enqueue(photoId, imageUrl) {
+export function enqueue(imageUrl) {
     const id = makeId();
 
     queue.set(id, {
         id,
-        photoId,
         imageUrl,
         status: JobStatus.PENDING,
         printerId: null,
@@ -61,3 +60,5 @@ export function markFailed(jobId, printerId) {
 
     return true;
 }
+
+export { queue };

@@ -6,7 +6,7 @@ import { randomUUID } from "crypto";
 
 import db from "./db.js";
 import { uploadImage } from "./r2.js";
-import { enqueue, claimNext, markDone, markFailed } from "./queue.js";
+import { queue, enqueue, claimNext, markDone, markFailed } from "./queue.js";
 import { toPage, parsePageable } from "./pageable.js";
 import { generateQR } from "./utils.js";
 
@@ -22,7 +22,7 @@ await app.register(multipart, {
 });
 
 function verifyWorker(request, reply) {
-    if (request.headers["X-Worker-Secret"] !== process.env.WORKER_SECRET) {
+    if (request.headers["x-worker-secret"] !== process.env.WORKER_SECRET) {
         reply.code(401).send({ status: false, message: "Unauthorized" });
 
         return false;
@@ -155,13 +155,20 @@ app.get("/share/:uuid", async (request, reply) => {
  * POST /print
  * 인쇄 요청
  */
-app.post("/print", { schema: { body: { type: "object", required: ["photoId"] } } }, async (request, reply) => {
-    const { photoId } = request.body;
+app.post("/print", async (request, reply) => {
+    const data = await request.file();
 
-    const photo = db.prepare(`SELECT id, image_url FROM photos WHERE id = ?`).get(photoId);
-    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+    if (!data) return reply.code(400), send({ status: false, message: "파일이 없습니다." });
 
-    const jobId = enqueue(photo.id, photo.image_url);
+    const chunks = [];
+
+    for await (const chunk of data.file) chunks.push(chunk);
+
+    const buffer = Buffer.concat(chunks);
+
+    const imageUrl = await uploadImage(buffer, "print.png", "image/png", "temp");
+
+    const jobId = enqueue(imageUrl);
 
     return reply.code(201).send({ jobId });
 });
@@ -191,9 +198,13 @@ app.get("/print-queue/next", async (request, reply) => {
 app.post("/print-queue/:id/done", async (request, reply) => {
     if (!verifyWorker(request, reply)) return;
 
+    const job = queue.get(request.params.id);
     const ok = markDone(request.params.id, request.query.printerId);
 
     if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
+
+    // R2 임시 파일 삭제
+    await deleteImage(job.imageUrl);
 
     return reply.send({ status: true });
 });
