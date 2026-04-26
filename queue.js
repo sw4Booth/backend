@@ -62,4 +62,20 @@ export function markFailed(jobId, printerId) {
     return true;
 }
 
+export function getAll() {
+    return [...queue.values()];
+}
+
+export function retry(jobId) {
+    const job = queue.get(jobId);
+
+    if (!job || job.status !== JobStatus.FAILED) return false;
+
+    job.status = JobStatus.PENDING;
+    job.printerId = null;
+    job.claimedAt = null;
+
+    return true;
+}
+
 export { queue };

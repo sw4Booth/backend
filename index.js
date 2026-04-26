@@ -3,33 +3,25 @@ import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
 import { randomUUID } from "crypto";
+import jwt from "jsonwebtoken";
 
 import db from "./db.js";
-import { uploadImage } from "./r2.js";
-import { queue, enqueue, claimNext, markDone, markFailed } from "./queue.js";
+import { uploadImage, deleteImage } from "./r2.js";
+import { queue, enqueue, claimNext, markDone, markFailed, retry, getAll } from "./queue.js";
 import { toPage, parsePageable } from "./pageable.js";
 import { generateQR } from "./utils.js";
+import { verifyAdmin, verifyWorker } from "./middleware.js";
 
 const app = Fastify({ logger: true });
 
 await app.register(cors, {
     origin: process.env.ALLOWED_ORIGIN.split(","),
-    methods: ["GET", "POST"],
+    methods: ["GET", "POST", "DELETE"],
 });
 
 await app.register(multipart, {
-    limits: { fileSize: 20 * 1024 & 1024 } // 20MB
+    limits: { fileSize: 20 * 1024 * 1024 } // 20MB
 });
-
-function verifyWorker(request, reply) {
-    if (request.headers["x-worker-secret"] !== process.env.WORKER_SECRET) {
-        reply.code(401).send({ status: false, message: "Unauthorized" });
-
-        return false;
-    }
-
-    return true;
-}
 
 app.get("/", async () => ({ status: true }));
 
@@ -40,7 +32,7 @@ app.get("/", async () => ({ status: true }));
 app.post("/photos/upload", async (request, reply) => {
     const data = await request.file();
 
-    if (!data) return reply.code(400), send({ status: false, message: "파일이 없습니다." });
+    if (!data) return reply.code(400).send({ status: false, message: "파일이 없습니다." });
 
     const { mimetype, filename } = data;
 
@@ -72,6 +64,43 @@ app.get("/photos", async (request, reply) => {
     const rows = db.prepare(`SELECT id, image_url FROM photos ORDER BY id DESC LIMIT ? OFFSET ?`).all(size, offset);
 
     return reply.send(toPage(rows.map((r) => ({ id: r.id, imageUrl: r.image_url })), total, page, size));
+});
+
+/**
+ * DELETE /photos/:id
+ * 사진 삭제
+ */
+app.delete("/photos/:id", async (request, reply) => {
+    if (!verifyAdmin(request, reply)) return;
+
+    const { id } = request.params;
+
+    const photo = db.prepare(`SELECT image_url FROM photos WHERE id = ?`).get(id);
+
+    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+
+    await deleteImage(photo.image_url);
+    db.prepare(`DELETE FROM photos WHERE id = ?`).run(id);
+
+    return reply.send({ status: true });
+});
+
+/**
+ * POST /photos/:id/print
+ * 사진 재출력 (관리자)
+ */
+app.post("/photos/:id/print", async (request, reply) => {
+    if (!verifyAdmin(request, reply)) return;
+
+    const { id } = request.params;
+
+    const photo = db.prepare(`SELECT id, image_url FROM photos WHERE id = ?`).get(id);
+
+    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+
+    const jobId = enqueue(photo.image_url);
+
+    return reply.code(201).send({ jobId });
 });
 
 /**
@@ -158,7 +187,7 @@ app.get("/share/:uuid", async (request, reply) => {
 app.post("/print", async (request, reply) => {
     const data = await request.file();
 
-    if (!data) return reply.code(400), send({ status: false, message: "파일이 없습니다." });
+    if (!data) return reply.code(400).send({ status: false, message: "파일이 없습니다." });
 
     const chunks = [];
 
@@ -174,7 +203,7 @@ app.post("/print", async (request, reply) => {
 });
 
 /**
- * GET /print/next
+ * GET /print-queue/next
  * 다음 인쇄 대상 조회 (worker specific)
  */
 app.get("/print-queue/next", async (request, reply) => {
@@ -189,6 +218,16 @@ app.get("/print-queue/next", async (request, reply) => {
     if (!job) return reply.code(204).send();
 
     return reply.send(job);
+});
+
+/**
+ * GET /print-queue
+ * 프린트 큐 전체 조회 (관리자)
+ */
+app.get("/print-queue", async (request, reply) => {
+    if (!verifyAdmin(request, reply)) return;
+
+    return reply.send(getAll());
 });
 
 /**
@@ -221,6 +260,36 @@ app.post("/print-queue/:id/fail", async (request, reply) => {
     if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
 
     return reply.send({ status: true });
+});
+
+/**
+ * POST /print-queue/:id/retry
+ * 실패 Job 재시도 (관리자)
+ */
+app.post("/print-queue/:id/retry", async (request, reply) => {
+    if (!verifyAdmin(request, reply)) return;
+
+    const ok = retry(request.params.id);
+
+    if (!ok) return reply.code(404).send({ status: false, message: "작업을 찾을 수 없습니다." });
+
+    return reply.send({ status: true });
+});
+
+/**
+ * POST /auth
+ * 관리자 토큰 발급
+ */
+app.post("/auth", async (request, reply) => {
+    const { password } = request.body ?? {};
+
+    if (password !== process.env.ADMIN_PASSWORD) {
+        return reply.code(401).send({ status: false, message: "잘못된 비밀번호입니다." });
+    }
+
+    const token = jwt.sign({}, process.env.JWT_SECRET, { expiresIn: "12h" });
+
+    return reply.send({ token });
 });
 
 const PORT = parseInt(process.env.PORT ?? "3000");
