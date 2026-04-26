@@ -4,13 +4,13 @@ import { writeFileSync, unlinkSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const API_BASE = process.env.API_BASE_URL ?? "http://localhost:3000";
 const WORKER_SECRET = process.env.WORKER_SECRET;
 const POLL_INTERVAL = 3_000;
 
 const IS_WINDOWS = process.platform === "win32";
 
 const printerArg = process.argv.find(a => a.startsWith("--printer="));
+const apiArg = process.argv.find(a => a.startsWith("--api="));
 
 if (!printerArg) {
     console.error("--printer=\"프린터이름\" 인자가 필요합니다.");
@@ -18,6 +18,7 @@ if (!printerArg) {
 }
 
 const PRINTER = printerArg.split("=").slice(1).join('=').replace(/^"|"$/g, "");
+const API_BASE = apiArg ? apiArg.split("=").slice(1).join("=") : "http://localhost:3000";
 
 const headers = { "x-worker-secret": WORKER_SECRET };
 
