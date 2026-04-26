@@ -58,6 +58,8 @@ app.post("/photos/upload", async (request, reply) => {
  * 사진 목록 조회 (paginated)
  */
 app.get("/photos", async (request, reply) => {
+    if (!verifyAdmin(request, reply)) return;
+
     const { page, size, offset } = parsePageable(request.query);
 
     const total = db.prepare(`SELECT COUNT(*) as cnt FROM photos`).get().cnt;
@@ -78,6 +80,9 @@ app.delete("/photos/:id", async (request, reply) => {
     const photo = db.prepare(`SELECT image_url FROM photos WHERE id = ?`).get(id);
 
     if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+
+    db.prepare(`DELETE FROM guestbook WHERE photo_id = ?`).run(id);
+    db.prepare(`DELETE FROM share_links WHERE photo_id = ?`).run(id);
 
     await deleteImage(photo.image_url);
     db.prepare(`DELETE FROM photos WHERE id = ?`).run(id);

@@ -20,7 +20,7 @@ export function verifyAdmin(request, reply) {
     }
 
     try {
-        jwt.verify(auth.slice(7), JWT_SECRET);
+        jwt.verify(auth.slice(7), process.env.JWT_SECRET);
 
         return true;
     } catch {

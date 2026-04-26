@@ -56,7 +56,6 @@ export function markFailed(jobId, printerId) {
     if (!job || job.printerId !== printerId) return false;
 
     job.status = JobStatus.FAILED;
-    job.printerId = null;
     job.claimedAt = null;
 
     return true;
