@@ -77,4 +77,12 @@ export function retry(jobId) {
     return true;
 }
 
+export function remove(jobId) {
+    if (!queue.has(jobId)) return false;
+
+    queue.delete(jobId);
+
+    return true;
+}
+
 export { queue };
