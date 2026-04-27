@@ -1,4 +1,4 @@
-import "dotenv/config"
+import "dotenv/config";
 import Fastify from "fastify";
 import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
@@ -7,20 +7,32 @@ import jwt from "jsonwebtoken";
 
 import db from "./db.js";
 import { uploadImage, deleteImage } from "./r2.js";
-import { queue, enqueue, claimNext, markDone, markFailed, retry, getAll } from "./queue.js";
+import {
+  queue,
+  enqueue,
+  claimNext,
+  markDone,
+  markFailed,
+  retry,
+  getAll,
+} from "./queue.js";
 import { toPage, parsePageable } from "./pageable.js";
 import { generateQR } from "./utils.js";
 import { verifyAdmin, verifyWorker } from "./middleware.js";
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 const app = Fastify({ logger: true });
 
 await app.register(cors, {
-    origin: process.env.ALLOWED_ORIGIN.split(","),
-    methods: ["GET", "POST", "DELETE"],
+  origin: process.env.ALLOWED_ORIGIN.split(","),
+  methods: ["GET", "POST", "DELETE"],
 });
 
 await app.register(multipart, {
-    limits: { fileSize: 20 * 1024 * 1024 } // 20MB
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
 app.get("/", async () => ({ status: true }));
@@ -30,27 +42,35 @@ app.get("/", async () => ({ status: true }));
  * 사진 업로드
  */
 app.post("/photos/upload", async (request, reply) => {
-    const data = await request.file();
+  const data = await request.file();
 
-    if (!data) return reply.code(400).send({ status: false, message: "파일이 없습니다." });
+  if (!data)
+    return reply.code(400).send({ status: false, message: "파일이 없습니다." });
 
-    const { mimetype, filename } = data;
+  const { mimetype, filename } = data;
 
-    if (!["image/jpeg", "image/png"].includes(mimetype)) {
-        return reply.code(400).send({ status: false, message: "올바르지 않은 이미지 파일 형식입니다." });
-    }
+  if (!["image/jpeg", "image/png"].includes(mimetype)) {
+    return reply.code(400).send({
+      status: false,
+      message: "올바르지 않은 이미지 파일 형식입니다.",
+    });
+  }
 
-    const chunks = [];
+  const chunks = [];
 
-    for await (const chunk of data.file) chunks.push(chunk);
+  for await (const chunk of data.file) chunks.push(chunk);
 
-    const buffer = Buffer.concat(chunks);
+  const buffer = Buffer.concat(chunks);
 
-    const imageUrl = await uploadImage(buffer, filename ?? "photo.jpg", mimetype);
+  const imageUrl = await uploadImage(buffer, filename ?? "photo.jpg", mimetype);
 
-    const row = db.prepare(`INSERT INTO photos (image_url) VALUES (?) RETURNING id, image_url`).get(imageUrl);
+  const row = db
+    .prepare(
+      `INSERT INTO photos (image_url) VALUES (?) RETURNING id, image_url`,
+    )
+    .get(imageUrl);
 
-    return reply.code(200).send({ id: row.id, imageUrl: row.image_url });
+  return reply.code(200).send({ id: row.id, imageUrl: row.image_url });
 });
 
 /**
@@ -58,14 +78,25 @@ app.post("/photos/upload", async (request, reply) => {
  * 사진 목록 조회 (paginated)
  */
 app.get("/photos", async (request, reply) => {
-    if (!verifyAdmin(request, reply)) return;
+  if (!verifyAdmin(request, reply)) return;
 
-    const { page, size, offset } = parsePageable(request.query);
+  const { page, size, offset } = parsePageable(request.query);
 
-    const total = db.prepare(`SELECT COUNT(*) as cnt FROM photos`).get().cnt;
-    const rows = db.prepare(`SELECT id, image_url FROM photos ORDER BY id DESC LIMIT ? OFFSET ?`).all(size, offset);
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM photos`).get().cnt;
+  const rows = db
+    .prepare(
+      `SELECT id, image_url FROM photos ORDER BY id DESC LIMIT ? OFFSET ?`,
+    )
+    .all(size, offset);
 
-    return reply.send(toPage(rows.map((r) => ({ id: r.id, imageUrl: r.image_url })), total, page, size));
+  return reply.send(
+    toPage(
+      rows.map((r) => ({ id: r.id, imageUrl: r.image_url })),
+      total,
+      page,
+      size,
+    ),
+  );
 });
 
 /**
@@ -73,21 +104,24 @@ app.get("/photos", async (request, reply) => {
  * 사진 삭제
  */
 app.delete("/photos/:id", async (request, reply) => {
-    if (!verifyAdmin(request, reply)) return;
+  if (!verifyAdmin(request, reply)) return;
 
-    const { id } = request.params;
+  const { id } = request.params;
 
-    const photo = db.prepare(`SELECT image_url FROM photos WHERE id = ?`).get(id);
+  const photo = db.prepare(`SELECT image_url FROM photos WHERE id = ?`).get(id);
 
-    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+  if (!photo)
+    return reply
+      .code(404)
+      .send({ status: false, message: "사진을 찾을 수 없습니다." });
 
-    db.prepare(`DELETE FROM guestbook WHERE photo_id = ?`).run(id);
-    db.prepare(`DELETE FROM share_links WHERE photo_id = ?`).run(id);
+  db.prepare(`DELETE FROM guestbook WHERE photo_id = ?`).run(id);
+  db.prepare(`DELETE FROM share_links WHERE photo_id = ?`).run(id);
 
-    await deleteImage(photo.image_url);
-    db.prepare(`DELETE FROM photos WHERE id = ?`).run(id);
+  await deleteImage(photo.image_url);
+  db.prepare(`DELETE FROM photos WHERE id = ?`).run(id);
 
-    return reply.send({ status: true });
+  return reply.send({ status: true });
 });
 
 /**
@@ -95,94 +129,228 @@ app.delete("/photos/:id", async (request, reply) => {
  * 사진 재출력 (관리자)
  */
 app.post("/photos/:id/print", async (request, reply) => {
-    if (!verifyAdmin(request, reply)) return;
+  if (!verifyAdmin(request, reply)) return;
 
-    const { id } = request.params;
+  const { id } = request.params;
 
-    const photo = db.prepare(`SELECT id, image_url FROM photos WHERE id = ?`).get(id);
+  const photo = db
+    .prepare(`SELECT id, image_url FROM photos WHERE id = ?`)
+    .get(id);
 
-    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+  if (!photo)
+    return reply
+      .code(404)
+      .send({ status: false, message: "사진을 찾을 수 없습니다." });
 
-    const jobId = enqueue(photo.image_url);
+  const jobId = enqueue(photo.image_url);
 
-    return reply.code(201).send({ jobId });
+  return reply.code(201).send({ jobId });
 });
 
 /**
  * POST /guestbook
  * 방명록 등록
  */
-app.post("/guestbook", { schema: { body: { type: "object", required: ["photoId"] } } }, async (request, reply) => {
+app.post(
+  "/guestbook",
+  { schema: { body: { type: "object", required: ["photoId"] } } },
+  async (request, reply) => {
     const { photoId } = request.body;
 
-    const photo = db.prepare(`SELECT id, image_url FROM photos WHERE id = ?`).get(photoId);
+    const photo = db
+      .prepare(`SELECT id, image_url FROM photos WHERE id = ?`)
+      .get(photoId);
 
-    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+    if (!photo)
+      return reply
+        .code(404)
+        .send({ status: false, message: "사진을 찾을 수 없습니다." });
 
-    const row = db.prepare(`INSERT INTO guestbook (photo_id) VALUES (?) RETURNING id, created_at`).get(photoId);
+    const row = db
+      .prepare(
+        `INSERT INTO guestbook (photo_id) VALUES (?) RETURNING id, created_at`,
+      )
+      .get(photoId);
 
-    return reply.code(201).send({ id: row.id, imageUrl: photo.image_url, createdAt: row.created_at });
-});
+    return reply.code(201).send({
+      id: row.id,
+      imageUrl: photo.image_url,
+      createdAt: row.created_at,
+    });
+  },
+);
 
 /**
  * GET /guestbook
  * 방명록 조회 (paginated)
  */
 app.get("/guestbook", async (request, reply) => {
-    const { page, size, offset } = parsePageable(request.query);
+  const { page, size, offset } = parsePageable(request.query);
 
-    const total = db.prepare(`SELECT COUNT(*) as cnt FROM guestbook`).get().cnt;
-    const rows = db.prepare(`
+  const total = db.prepare(`SELECT COUNT(*) as cnt FROM guestbook`).get().cnt;
+  const rows = db
+    .prepare(
+      `
         SELECT g.id, g.created_at, p.image_url
         FROM guestbook g
         JOIN photos p ON p.id = g.photo_id
         ORDER BY g.created_at DESC
         LIMIT ? OFFSET ?
-    `).all(size, offset);
+    `,
+    )
+    .all(size, offset);
 
-    return reply.send(toPage(rows.map((r) => ({ id: r.id, imageUrl: r.image_url, createdAt: r.created_at })), total, page, size));
+  return reply.send(
+    toPage(
+      rows.map((r) => ({
+        id: r.id,
+        imageUrl: r.image_url,
+        createdAt: r.created_at,
+      })),
+      total,
+      page,
+      size,
+    ),
+  );
+});
+
+const STYLE_PROMPTS = {
+  watercolor:
+    "Transform this photo into a Studio Ghibli-inspired watercolor illustration. Use soft, hand-painted watercolor textures with warm natural tones, gentle brush strokes, and a dreamy pastoral countryside atmosphere. Make the characters look like they belong in a Ghibli film — expressive eyes, soft features, and surrounded by lush organic backgrounds. Keep people clearly recognizable. high quality, highly detailed, consistent style, clean composition, no distortion",
+  cartoon:
+    "Transform this image into a Crayon Shin-chan anime style illustration. Use bold outlines, flat and bright colors, and simple exaggerated facial features. Characters should have large oval eyes, thick eyebrows, and a playful, slightly goofy expression. Keep the design minimal and cartoonish, with a humorous and lighthearted tone. Background should be simple and colorful, matching the Shin-chan animation style. high quality, highly detailed, consistent style, clean composition, no distortion",
+  village:
+    "Transform this image into an Animal Crossing-style character. Make the character cute and chibi-like with a small body and large round head. Use smooth textures, soft shading, and bright, cheerful colors. Add simple, rounded features with big expressive eyes. Give it a cozy and friendly vibe, like a character from a relaxing village life game. Background should feel clean, minimal, and colorful. high quality, highly detailed, consistent style, clean composition, no distortion",
+};
+
+/**
+ * POST /photos/transform
+ * Gemini로 이미지 스타일 변환
+ */
+app.post("/photos/transform", async (request, reply) => {
+  const { images, style } = request.body;
+
+  if (!images || !style) {
+    return reply
+      .code(400)
+      .send({ status: false, message: "images와 style이 필요합니다." });
+  }
+
+  const prompt = STYLE_PROMPTS[style];
+
+  if (!prompt) {
+    return reply
+      .code(400)
+      .send({ status: false, message: "지원하지 않는 스타일입니다." });
+  }
+
+  const model = genAI.getGenerativeModel({
+    model: "gemini-2.0-flash-exp-image-generation",
+    generationConfig: { responseModalities: ["image"] },
+  });
+
+  try {
+    const transformedImages = await Promise.all(
+      images.map(async (base64Image) => {
+        const result = await model.generateContent([
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: base64Image,
+            },
+          },
+          { text: prompt },
+        ]);
+
+        const part = result.response.candidates[0].content.parts.find(
+          (p) => p.inlineData,
+        );
+
+        if (!part) throw new Error("이미지 변환 실패");
+
+        return part.inlineData.data; // base64 반환
+      }),
+    );
+
+    return reply.send({ transformedImages });
+  } catch (e) {
+    console.error("Gemini transform error:", e);
+    return reply
+      .code(500)
+      .send({ status: false, message: "변환 중 오류가 발생했습니다." });
+  }
 });
 
 /**
  * POST /share
  * 공유 링크 및 QR 이미지 생성
  */
-app.post("/share", { schema: { body: { type: "object", required: ["photoId"] } } }, async (request, reply) => {
+app.post(
+  "/share",
+  { schema: { body: { type: "object", required: ["photoId"] } } },
+  async (request, reply) => {
     const { photoId } = request.body;
 
-    const photo = db.prepare(`SELECT id, image_url FROM photos WHERE id = ?`).get(photoId);
+    const photo = db
+      .prepare(`SELECT id, image_url FROM photos WHERE id = ?`)
+      .get(photoId);
 
-    if (!photo) return reply.code(404).send({ status: false, message: "사진을 찾을 수 없습니다." });
+    if (!photo)
+      return reply
+        .code(404)
+        .send({ status: false, message: "사진을 찾을 수 없습니다." });
 
     const linkUuid = randomUUID();
     const shareUrl = `${process.env.CLIENT_BASE_URL}/share/${linkUuid}`;
     const qrImageBase64 = await generateQR(shareUrl);
 
-    const row = db.prepare(`INSERT INTO share_links (uuid, photo_id) VALUES (?, ?) RETURNING id`).get(linkUuid, photoId);
+    const row = db
+      .prepare(
+        `INSERT INTO share_links (uuid, photo_id) VALUES (?, ?) RETURNING id`,
+      )
+      .get(linkUuid, photoId);
 
-    return reply.send({ id: row.id, uuid: linkUuid, imageUrl: photo.image_url, qrImageBase64 });
-});
+    return reply.send({
+      id: row.id,
+      uuid: linkUuid,
+      imageUrl: photo.image_url,
+      qrImageBase64,
+    });
+  },
+);
 
 /**
  * GET /share/:uuid
  * 공유 링크 조회
  */
 app.get("/share/:uuid", async (request, reply) => {
-    const { uuid } = request.params;
+  const { uuid } = request.params;
 
-    const row = db.prepare(`
+  const row = db
+    .prepare(
+      `
         SELECT s.id, s.uuid, p.image_url
         FROM share_links s
         JOIN photos p ON p.id = s.photo_id
         WHERE s.uuid = ?
-    `).get(uuid);
+    `,
+    )
+    .get(uuid);
 
-    if (!row) return reply.code(404).send({ status: false, message: "공유 링크를 찾을 수 없습니다." });
+  if (!row)
+    return reply
+      .code(404)
+      .send({ status: false, message: "공유 링크를 찾을 수 없습니다." });
 
-    const shareUrl = `${process.env.CLIENT_BASE_URL}/share/${row.uuid}`;
-    const qrImageBase64 = await generateQR(shareUrl);
+  const shareUrl = `${process.env.CLIENT_BASE_URL}/share/${row.uuid}`;
+  const qrImageBase64 = await generateQR(shareUrl);
 
-    return reply.send({ id: row.id, uuid: row.uuid, imageUrl: row.image_url, qrImageBase64 });
+  return reply.send({
+    id: row.id,
+    uuid: row.uuid,
+    imageUrl: row.image_url,
+    qrImageBase64,
+  });
 });
 
 /**
@@ -190,21 +358,22 @@ app.get("/share/:uuid", async (request, reply) => {
  * 인쇄 요청
  */
 app.post("/print", async (request, reply) => {
-    const data = await request.file();
+  const data = await request.file();
 
-    if (!data) return reply.code(400).send({ status: false, message: "파일이 없습니다." });
+  if (!data)
+    return reply.code(400).send({ status: false, message: "파일이 없습니다." });
 
-    const chunks = [];
+  const chunks = [];
 
-    for await (const chunk of data.file) chunks.push(chunk);
+  for await (const chunk of data.file) chunks.push(chunk);
 
-    const buffer = Buffer.concat(chunks);
+  const buffer = Buffer.concat(chunks);
 
-    const imageUrl = await uploadImage(buffer, "print.png", "image/png", "temp");
+  const imageUrl = await uploadImage(buffer, "print.png", "image/png", "temp");
 
-    const jobId = enqueue(imageUrl);
+  const jobId = enqueue(imageUrl);
 
-    return reply.code(201).send({ jobId });
+  return reply.code(201).send({ jobId });
 });
 
 /**
@@ -212,17 +381,20 @@ app.post("/print", async (request, reply) => {
  * 다음 인쇄 대상 조회 (worker specific)
  */
 app.get("/print-queue/next", async (request, reply) => {
-    if (!verifyWorker(request, reply)) return;
+  if (!verifyWorker(request, reply)) return;
 
-    const { printerId } = request.query;
+  const { printerId } = request.query;
 
-    if (!printerId) return reply.code(400).send({ status: false, message: "printerId가 필요합니다." });
+  if (!printerId)
+    return reply
+      .code(400)
+      .send({ status: false, message: "printerId가 필요합니다." });
 
-    const job = claimNext(printerId);
+  const job = claimNext(printerId);
 
-    if (!job) return reply.code(204).send();
+  if (!job) return reply.code(204).send();
 
-    return reply.send(job);
+  return reply.send(job);
 });
 
 /**
@@ -230,9 +402,9 @@ app.get("/print-queue/next", async (request, reply) => {
  * 프린트 큐 전체 조회 (관리자)
  */
 app.get("/print-queue", async (request, reply) => {
-    if (!verifyAdmin(request, reply)) return;
+  if (!verifyAdmin(request, reply)) return;
 
-    return reply.send(getAll());
+  return reply.send(getAll());
 });
 
 /**
@@ -240,17 +412,17 @@ app.get("/print-queue", async (request, reply) => {
  * 인쇄 완료 처리 (worker specific)
  */
 app.post("/print-queue/:id/done", async (request, reply) => {
-    if (!verifyWorker(request, reply)) return;
+  if (!verifyWorker(request, reply)) return;
 
-    const job = queue.get(request.params.id);
-    const ok = markDone(request.params.id, request.query.printerId);
+  const job = queue.get(request.params.id);
+  const ok = markDone(request.params.id, request.query.printerId);
 
-    if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
+  if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
 
-    // R2 임시 파일 삭제
-    await deleteImage(job.imageUrl);
+  // R2 임시 파일 삭제
+  await deleteImage(job.imageUrl);
 
-    return reply.send({ status: true });
+  return reply.send({ status: true });
 });
 
 /**
@@ -258,13 +430,13 @@ app.post("/print-queue/:id/done", async (request, reply) => {
  * 인쇄 실패 처리 (worker specific)
  */
 app.post("/print-queue/:id/fail", async (request, reply) => {
-    if (!verifyWorker(request, reply)) return;
+  if (!verifyWorker(request, reply)) return;
 
-    const ok = markFailed(request.params.id, request.query.printerId);
+  const ok = markFailed(request.params.id, request.query.printerId);
 
-    if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
+  if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
 
-    return reply.send({ status: true });
+  return reply.send({ status: true });
 });
 
 /**
@@ -272,13 +444,16 @@ app.post("/print-queue/:id/fail", async (request, reply) => {
  * 실패 Job 재시도 (관리자)
  */
 app.post("/print-queue/:id/retry", async (request, reply) => {
-    if (!verifyAdmin(request, reply)) return;
+  if (!verifyAdmin(request, reply)) return;
 
-    const ok = retry(request.params.id);
+  const ok = retry(request.params.id);
 
-    if (!ok) return reply.code(404).send({ status: false, message: "작업을 찾을 수 없습니다." });
+  if (!ok)
+    return reply
+      .code(404)
+      .send({ status: false, message: "작업을 찾을 수 없습니다." });
 
-    return reply.send({ status: true });
+  return reply.send({ status: true });
 });
 
 /**
@@ -286,15 +461,17 @@ app.post("/print-queue/:id/retry", async (request, reply) => {
  * 관리자 토큰 발급
  */
 app.post("/auth", async (request, reply) => {
-    const { password } = request.body ?? {};
+  const { password } = request.body ?? {};
 
-    if (password !== process.env.ADMIN_PASSWORD) {
-        return reply.code(401).send({ status: false, message: "잘못된 비밀번호입니다." });
-    }
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return reply
+      .code(401)
+      .send({ status: false, message: "잘못된 비밀번호입니다." });
+  }
 
-    const token = jwt.sign({}, process.env.JWT_SECRET, { expiresIn: "12h" });
+  const token = jwt.sign({}, process.env.JWT_SECRET, { expiresIn: "12h" });
 
-    return reply.send({ token });
+  return reply.send({ token });
 });
 
 const PORT = parseInt(process.env.PORT ?? "3000");
