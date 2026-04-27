@@ -4,7 +4,6 @@ import multipart from "@fastify/multipart";
 import cors from "@fastify/cors";
 import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import db from "./db.js";
 import { uploadImage, deleteImage } from "./r2.js";
@@ -34,6 +33,15 @@ await app.register(cors, {
 await app.register(multipart, {
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
+
+const STYLE_PROMPTS = {
+  watercolor:
+    "Transform this photo into a Studio Ghibli-inspired watercolor illustration. Use soft, hand-painted watercolor textures with warm natural tones, gentle brush strokes, and a dreamy pastoral countryside atmosphere. Make the characters look like they belong in a Ghibli film — expressive eyes, soft features, and surrounded by lush organic backgrounds. Keep people clearly recognizable. high quality, highly detailed, consistent style, clean composition, no distortion",
+  cartoon:
+    "Transform this image into a Crayon Shin-chan anime style illustration. Use bold outlines, flat and bright colors, and simple exaggerated facial features. Characters should have large oval eyes, thick eyebrows, and a playful, slightly goofy expression. Keep the design minimal and cartoonish, with a humorous and lighthearted tone. Background should be simple and colorful, matching the Shin-chan animation style. high quality, highly detailed, consistent style, clean composition, no distortion",
+  village:
+    "Transform this image into an Animal Crossing-style character. Make the character cute and chibi-like with a small body and large round head. Use smooth textures, soft shading, and bright, cheerful colors. Add simple, rounded features with big expressive eyes. Give it a cozy and friendly vibe, like a character from a relaxing village life game. Background should feel clean, minimal, and colorful. high quality, highly detailed, consistent style, clean composition, no distortion",
+};
 
 app.get("/", async () => ({ status: true }));
 
