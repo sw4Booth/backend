@@ -1,4 +1,4 @@
-export const GEMINI_MODEL = "gemini-3.1-flash-image-preview";
+export const GEMINI_MODEL = "gemini-2.5-flash-image";
 
 export const STYLE_PROMPTS = {
     watercolor:
