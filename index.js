@@ -36,6 +36,17 @@ await app.register(multipart, {
     limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
 });
 
+const STYLE_PROMPTS = {
+  watercolor:
+    "Transform this photo into a frame from a Japanese animated film in a classic Ghibli-inspired style. Use clean and delicate linework with soft, natural shading and warm, slightly muted color tones. Characters should have natural and realistic proportions with slightly larger, gentle eyes and soft facial features. Avoid exaggeration. Skin should appear smooth and softly shaded, not overly textured or painterly. Use subtle gradients and soft lighting to create a calm, nostalgic atmosphere. Hair should be naturally detailed with light, soft strands, not overly simplified. Background should be softly illustrated with warm tones and minimal detail, like an animation scene. Avoid heavy outlines, avoid watercolor textures, avoid overly flat colors. Maintain a balanced look between animation and realism, like a high-quality animated movie still. high quality, highly detailed, consistent style, clean composition, no distortion",
+
+  cartoon:
+    "Transform this image into a Disney-style animated feature film character illustration. Use a polished 3D animated movie look with smooth rendering, soft global illumination, and warm cinematic lighting. Redesign the characters with large expressive eyes with bright highlights, rounded soft appealing facial features, and slightly stylized non-realistic proportions. Keep the original identity of each person while enhancing them into charming and appealing animated characters. Skin should be smooth and slightly glossy with soft gradients. Hair should be simplified into clean soft voluminous shapes. Clothing should remain similar but slightly stylized and simplified. Use a warm magical inviting color palette. Background should be softly blurred with cinematic depth of field. IMPORTANT: Avoid anime style, avoid flat illustration, avoid realistic human proportions. Maintain a high-quality animated feature film aesthetic. high quality, highly detailed, consistent style, clean composition, no distortion",
+
+  village:
+    "Transform this image into an Animal Crossing-style character. Make the character cute and chibi-like with a small body and large round head. Use smooth textures, soft shading, and bright, cheerful colors. Add simple, rounded features with big expressive eyes. Give it a cozy and friendly vibe, like a character from a relaxing village life game. Background should feel clean, minimal, and colorful. high quality, highly detailed, consistent style, clean composition, no distortion",
+};
+
 app.get("/", async () => ({ status: true }));
 
 /**
