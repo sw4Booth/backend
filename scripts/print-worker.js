@@ -57,7 +57,7 @@ function printFile(filePath) {
     if (IS_WINDOWS) {
         // TODO
     } else {
-        execSync(`lpr -P "${PRINTER}" -o media=Custom.4x6in -o print-scaling=fill "${filePath}"`, { timeout: 30_000 });
+        execSync(`lpr -P "${PRINTER}"  "${filePath}"`, { timeout: 30_000 });
     }
 }
 
