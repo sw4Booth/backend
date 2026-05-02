@@ -236,31 +236,36 @@ app.post("/photos/transform", async (request, reply) => {
             .send({ status: false, message: "지원하지 않는 스타일입니다." });
     }
 
-    try {
-        const transformedImages = await Promise.all(
-            images.map(async (base64Image) => {
-                const response = await ai.models.generateContent({
-                    model: GEMINI_MODEL,
-                    contents: [
-                        { inlineData: { mimeType: "image/jpeg", data: base64Image } },
-                        { text: prompt },
-                    ],
-                    config: { responseModalities: ["TEXT", "IMAGE"] },
-                });
+    request.log.info({ style, count: images.length }, "Gemini transform start");
 
-                const part = response.candidates[0].content.parts.find((p) => p.inlineData);
-                if (!part) throw new Error("이미지 변환 실패");
-                return part.inlineData.data;
-            }),
-        );
+    const transformedImages = await Promise.all(
+        images.map(async (base64Image, idx) => {
+            const response = await ai.models.generateContent({
+                model: GEMINI_MODEL,
+                contents: [
+                    { inlineData: { mimeType: "image/jpeg", data: base64Image } },
+                    { text: prompt },
+                ],
+                config: { responseModalities: ["TEXT", "IMAGE"] },
+            });
 
-        return reply.send({ transformedImages });
-    } catch (e) {
-        console.error("Gemini transform error:", e);
-        return reply
-            .code(500)
-            .send({ status: false, message: "변환 중 오류가 발생했습니다." });
-    }
+            const candidate = response.candidates?.[0];
+            if (!candidate?.content?.parts) {
+                throw new Error(
+                    `Gemini 응답 없음 [${idx}]: finishReason=${candidate?.finishReason}`,
+                );
+            }
+
+            const part = candidate.content.parts.find((p) => p.inlineData);
+            if (!part) throw new Error(`이미지 파트 없음 [${idx}]`);
+
+            return part.inlineData.data;
+        }),
+    );
+
+    request.log.info({ style, count: images.length }, "Gemini transform done");
+
+    return reply.send({ transformedImages });
 });
 
 /**
@@ -362,7 +367,7 @@ app.post("/print", async (request, reply) => {
  * GET /print-queue/next
  * 다음 인쇄 대상 조회 (worker specific)
  */
-app.get("/print-queue/next", async (request, reply) => {
+app.get("/print-queue/next", { logLevel: "warn" }, async (request, reply) => {
     if (!verifyWorker(request, reply)) return;
 
     const { printerId } = request.query;
