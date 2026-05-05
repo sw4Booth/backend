@@ -407,7 +407,7 @@ app.post("/print-queue/:id/done", async (request, reply) => {
     if (!ok) return reply.code(404).send({ error: "작업을 찾을 수 없습니다." });
 
     // R2 임시 파일 삭제
-    await deleteImage(job.imageUrl);
+    // await deleteImage(job.imageUrl);
 
     return reply.send({ status: true });
 });
